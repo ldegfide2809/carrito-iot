@@ -4,7 +4,12 @@
 // ===============================================================
 
 // ---------------- METADATOS ----------------
-let API_BASE = "ws://54.167.184.108:5500";
+const DEFAULT_WS  = "ws://54.167.184.108:5500";      // Para pruebas directas
+const DEFAULT_WSS = "wss://ws.omariot.online";       // Para GitHub Pages (HTTPS + Cloudflare)
+
+// Si la página es HTTPS, usamos WSS; si es HTTP, usamos WS
+let API_BASE = (location.protocol === "https:") ? DEFAULT_WSS : DEFAULT_WS;
+
 let CAR_ID = 1;
 let USER_ID = 1;
 
@@ -44,7 +49,16 @@ function setStatus(text, type = "secondary") {
 }
 
 function buildWS(path) {
-  let url = API_BASE.replace(/\/+$/, "") + path;
+  // Quitamos / extra al final
+  let base = API_BASE.replace(/\/+$/, "");
+
+  // Si la página es HTTPS y la base empieza con ws:// → forzar wss://
+  if (location.protocol === "https:" && base.startsWith("ws://")) {
+    base = "wss://" + base.slice(5);
+  }
+
+  let url = base + path;
+
   if (path.startsWith("/ws/r/")) {
     url += (url.includes("?") ? "&" : "?") +
       `dispositivo=${CAR_ID}&usuario=${USER_ID}`;
@@ -56,7 +70,8 @@ function buildWS(path) {
 //  🔵 WEBSOCKET PERSISTENTE
 // ===============================================================
 function initControlWS() {
-  const url = `${API_BASE}/ws/r/control-movimiento?dispositivo=${CAR_ID}&usuario=${USER_ID}`;
+  const url = buildWS("/ws/r/control-movimiento");
+
   wsControl = new WebSocket(url);
 
   wsControl.onopen = () => {
@@ -121,18 +136,38 @@ function sendWS(path, onReply) {
 // ===============================================================
 //  🔘 ACCIONES DE MOVIMIENTO
 // ===============================================================
+// Mapeo según tu BD / lógica:
+// 1: Adelante
+// 2: Atrás
+// 3: Detener
+// 4: Adelante Derecha
+// 5: Adelante Izquierda
+// 6: Atrás Derecha
+// 7: Atrás Izquierda
+// 8: Giro 90° Derecha
+// 9: Giro 90° Izquierda
+// 10: Giro 360° Derecha
+// 11: Giro 360° Izquierda
 const ACTIONS = {
-  up: { op: 1, path: "adelante" },
-  down: { op: 2, path: "atras" },
-  stop: { op: 3, path: "detener" },
-  left: { op: 4, path: "giro/90/izquierda" },
-  right: { op: 5, path: "giro/90/derecha" },
-  upLeft: { op: 6, path: "izquierda" },
-  upRight: { op: 7, path: "derecha" },
-  downLeft: { op: 8, path: "atras-izquierda" },
-  downRight: { op: 9, path: "atras-derecha" },
-  turn360L: { op: 10, path: "giro/360/izquierda" },
-  turn360R: { op: 11, path: "giro/360/derecha" }
+  up:       { op: 1, path: "adelante" },
+  down:     { op: 2, path: "atras" },
+  stop:     { op: 3, path: "detener" },
+
+  // Giro 90° en su lugar
+  left:     { op: 9, path: "giro/90/izquierda" },
+  right:    { op: 8, path: "giro/90/derecha" },
+
+  // Adelante diagonales
+  upLeft:   { op: 5, path: "izquierda" },        // Adelante-Izquierda
+  upRight:  { op: 4, path: "derecha" },         // Adelante-Derecha
+
+  // Atrás diagonales
+  downLeft:  { op: 7, path: "atras-izquierda" }, // Atrás-Izquierda
+  downRight: { op: 6, path: "atras-derecha" },   // Atrás-Derecha
+
+  // Giros 360°
+  turn360L: { op: 11, path: "giro/360/izquierda" }, // 360 Izquierda
+  turn360R: { op: 10, path: "giro/360/derecha" }    // 360 Derecha
 };
 
 // ===============================================================
@@ -175,12 +210,12 @@ const OPERACION_NOMBRE = {
   1: "Adelante",
   2: "Atrás",
   3: "Detener",
-  4: "Giro 90° Izquierda",
-  5: "Giro 90° Derecha",
-  6: "Izquierda",
-  7: "Derecha",
-  8: "Atrás-Izquierda",
-  9: "Atrás-Derecha",
+  4: "Adelante-Derecha",
+  5: "Adelante-Izquierda",
+  6: "Atrás-Derecha",
+  7: "Atrás-Izquierda",
+  8: "Giro 90° Derecha",
+  9: "Giro 90° Izquierda",
   10: "Giro 360° Derecha",
   11: "Giro 360° Izquierda"
 };
@@ -273,7 +308,10 @@ function runSequenceRTC() {
   movimientosBloqueados = true;
 
   sendWS(`/ws/r/ejecutar-secuencia-rtc/${id}?delay=3`,
-    () => {
+    (resp) => {
+      // 🔓 al terminar la secuencia, volvemos a permitir movimientos
+      movimientosBloqueados = false;
+
       setStatus("Secuencia RTC ejecutada", "success");
 
       // 🔴 al finalizar la secuencia, mandamos un DETENER por el WS persistente
@@ -505,7 +543,7 @@ function bindMeta() {
 
     CAR_ID = document.getElementById("inpCartId").value.trim() || 1;
     USER_ID = document.getElementById("inpUserId").value.trim() || 1;
-    API_BASE = document.getElementById("inpApiBase").value.trim();
+    API_BASE = document.getElementById("inpApiBase").value.trim() || API_BASE;
 
     updateMeta();
     setStatus("Metadatos actualizados", "info");
@@ -548,7 +586,13 @@ function cargarPasosDeSecuencia(idSec) {
 // ===============================================================
 function cargarVelocidades() {
 
-  const ws = new WebSocket(API_BASE.replace(/\/+$/, "") + "/ws/r/velocidad");
+  // Igual que buildWS: respetar HTTPS → WSS
+  let base = API_BASE.replace(/\/+$/, "");
+  if (location.protocol === "https:" && base.startsWith("ws://")) {
+    base = "wss://" + base.slice(5);
+  }
+
+  const ws = new WebSocket(base + "/ws/r/velocidad");
 
   ws.onmessage = (ev) => {
     let data;
