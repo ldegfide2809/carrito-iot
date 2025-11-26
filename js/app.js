@@ -4,12 +4,7 @@
 // ===============================================================
 
 // ---------------- METADATOS ----------------
-const DEFAULT_WS  = "ws://54.167.184.108:5500";      // Para pruebas directas
-const DEFAULT_WSS = "wss://ws.omariot.online";       // Para GitHub Pages (HTTPS + Cloudflare)
-
-// Si la página es HTTPS, usamos WSS; si es HTTP, usamos WS
-let API_BASE = (location.protocol === "https:") ? DEFAULT_WSS : DEFAULT_WS;
-
+let API_BASE = "ws://54.167.184.108:5500";
 let CAR_ID = 1;
 let USER_ID = 1;
 
@@ -49,16 +44,7 @@ function setStatus(text, type = "secondary") {
 }
 
 function buildWS(path) {
-  // Quitamos / extra al final
-  let base = API_BASE.replace(/\/+$/, "");
-
-  // Si la página es HTTPS y la base empieza con ws:// → forzar wss://
-  if (location.protocol === "https:" && base.startsWith("ws://")) {
-    base = "wss://" + base.slice(5);
-  }
-
-  let url = base + path;
-
+  let url = API_BASE.replace(/\/+$/, "") + path;
   if (path.startsWith("/ws/r/")) {
     url += (url.includes("?") ? "&" : "?") +
       `dispositivo=${CAR_ID}&usuario=${USER_ID}`;
@@ -70,8 +56,7 @@ function buildWS(path) {
 //  🔵 WEBSOCKET PERSISTENTE
 // ===============================================================
 function initControlWS() {
-  const url = buildWS("/ws/r/control-movimiento");
-
+  const url = `${API_BASE}/ws/r/control-movimiento?dispositivo=${CAR_ID}&usuario=${USER_ID}`;
   wsControl = new WebSocket(url);
 
   wsControl.onopen = () => {
@@ -543,7 +528,7 @@ function bindMeta() {
 
     CAR_ID = document.getElementById("inpCartId").value.trim() || 1;
     USER_ID = document.getElementById("inpUserId").value.trim() || 1;
-    API_BASE = document.getElementById("inpApiBase").value.trim() || API_BASE;
+    API_BASE = document.getElementById("inpApiBase").value.trim();
 
     updateMeta();
     setStatus("Metadatos actualizados", "info");
@@ -586,13 +571,7 @@ function cargarPasosDeSecuencia(idSec) {
 // ===============================================================
 function cargarVelocidades() {
 
-  // Igual que buildWS: respetar HTTPS → WSS
-  let base = API_BASE.replace(/\/+$/, "");
-  if (location.protocol === "https:" && base.startsWith("ws://")) {
-    base = "wss://" + base.slice(5);
-  }
-
-  const ws = new WebSocket(base + "/ws/r/velocidad");
+  const ws = new WebSocket(API_BASE.replace(/\/+$/, "") + "/ws/r/velocidad");
 
   ws.onmessage = (ev) => {
     let data;
